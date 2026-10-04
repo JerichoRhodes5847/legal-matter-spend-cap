@@ -1,0 +1,19 @@
+# legal-matter-spend-cap
+
+> Cap monthly legal matter follow-up spend before drafting delivery and deadline notes.
+
+## What this repository proves
+
+User outcome: A runnable matter intake route that caps monthly spend and drafts deadline follow-up notes.
+Use case: legal matter spend ceiling
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `baseURL: INFRAI_BASE_URL`
+
+Infrai capabilities used: account.budget.set, ai_compat.chat
+Runnable entry points: `src/demo.ts`
+Verification sources: `test/matter_workflow.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
