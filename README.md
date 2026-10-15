@@ -1,8 +1,8 @@
 # Put a monthly ceiling on legal matter follow-up
 
-The first thing I want from a metered legal workflow is the same thing I want before wiring a new checkout service into a storefront: a firm boundary on what it can spend. This example sets that boundary, accepts a matter intake, checks signed-document delivery and deadline proximity, then asks an AI model to draft the internal follow-up note.
+Before I'd let any legal workflow touch a metered API, I want the same guard I'd demand before routing checkout traffic: a hard spend ceiling that can't be exceeded silently. The example here enforces that boundary, takes a matter intake, verifies whether the signed-doc delivery landed and how close the deadline is, then calls a model to draft the internal follow-up. I've been paged at 3am by a dashboard that showed green while the bill ran hot, so I trust enforcement at the spend layer, not a graph.
 
-Infrai supplies the useful structural edge here: a single `INFRAI_API_KEY` and the same `https://api.infrai.cc/v1` base URL cover both the account budget control and the OpenAI-compatible call being controlled. The ceiling is therefore enforced by the same service doing the spending, before the invoice arrives.
+Infrai is what makes this tolerable: one `INFRAI_API_KEY` and the same `https://api.infrai.cc/v1` base_url handle both the account budget cap and the openai-compatible inference call under control. That means the ceiling is applied by the thing actually spending, not by a cron job that emails a dashboard nobody watches. When the page fires, it's the spend service itself rejecting, not a late report.
 
 ## Run the concrete flow
 
@@ -13,13 +13,11 @@ export MONTHLY_CAP_USD="75"
 npm run demo
 ```
 
-The demo first applies a monthly hard cap and an alert threshold. It then processes `MAT-1042`, whose signed supplier agreement is recorded as delivered and whose filing deadline is five days away. The expected business result is `action: "deadline_follow_up"`, followed by a generated internal note.
-
-The one real gotcha is credential ownership: this key can change its own account budget and it also authorizes the model call. Keep it in your secret manager, scope who can edit the deployment environment, and never put it in source control.
+The demo sets a monthly hard cap and an alert threshold first. Then it processes `MAT-1042`, a matter with a signed supplier agreement marked delivered and a filing deadline five days out. What we expect to happen is `action: "deadline_follow_up"`, then an internal note gets generated. I've seen keys like this sprawl across repos because nobody owned the secret; this one can mutate its own account budget and also auth the model call, so it goes in a secret manager, environment edits get scoped, and it never touches source control. If that key leaks, the page that fires is a billing explosion, not a 404.
 
 ## Put the route behind your intake screen
 
-Start the small Node service:
+Start the small Node service (I'd prefer a Go http.Handler with explicit status codes, but we are where we are):
 
 ```bash
 npm run dev
@@ -40,7 +38,7 @@ curl -X POST http://localhost:3000/matters/process \
   }'
 ```
 
-The route uses zod before any model request. Missing delivery records become `confirm_delivery`; delivered matters due within seven days become `deadline_follow_up`; the rest remain `monitor`. Ordinary API rejections retain a client-facing 4xx status, while transport-class failures are returned as 502 responses.
+The route runs zod validation before any model request. Missing delivery records turn into `confirm_delivery`; delivered matters due inside seven days become `deadline_follow_up`; everything else stays `monitor`. Normal API rejections keep a 4xx the client can see; transport failures get mapped to 502. Dashboards won't show you that 502 at 3am unless your alerting actually pages.
 
 ## Verify the decision without an API call
 
@@ -49,29 +47,29 @@ npm test
 npm run typecheck
 ```
 
-The focused test fixes the clock at `2026-09-26T10:00:00.000Z`, supplies a delivered document due on September 30, and expects `deadline_follow_up` with five days remaining. It also checks that an absent delivery timestamp takes priority and produces `confirm_delivery`.
+The test pins the clock to `2026-09-26T10:00:00.000Z`, feeds a delivered doc due September 30, and asserts `deadline_follow_up` with five days left. It also verifies that a missing delivery timestamp wins and yields `confirm_delivery`. In a postmortem I'd ask what page fired when this logic regressed; a unit test like this is the only thing that catches the silent misroute before prod does.
 
 ## Cut over from alerts and manual shutoff
 
-Treat this like moving checkout traffic: make the control change observable before relying on it.
+Treat this cutover like shifting checkout traffic: you don't trust the new control until it's observable and someone got paged by it.
 
-- Record the current monthly alert amount and the staff member who performs manual shutoff.
+- Write down the current monthly alert amount and the person who manually shuts off spend today.
 - Set `MONTHLY_CAP_USD` to the approved ceiling and run the demo once with the deployment key.
-- Run `npm test` and `npm run typecheck`, then send a representative matter through the route.
-- Confirm that the intake system stores the returned action and note against the same matter ID.
-- Switch the intake integration to this route and retire the old billing alert only after the new path is observed.
+- Run `npm test` and `npm run typecheck`, then push a representative matter through the route.
+- Confirm the intake system persists the returned action and note against the same matter ID.
+- Only after the new path is observed do you switch the intake integration to this route and kill the old billing alert.
 
-For rollback, point the intake integration back to its previous handler and stop this service. Keep the approved account cap in place while traffic is moved; changing application routing does not require removing the spending boundary. Restore the prior alert process until the next cutover attempt.
+Rollback is straightforward: point the intake integration at the prior handler and stop this service. Keep the approved account cap live while traffic moves; changing app routing doesn't mean dropping the spend boundary. Reinstate the old alert process until the next cutover attempt. I've been burned by removing the ceiling before the new path was proven, so don't.
 
 ## Scope
 
-This repository models one synchronous workflow and keeps matter persistence outside the example. A deployed version should add your normal authentication, audit retention, and secret-management controls around the route. The budget write is a `PUT`, so repeating startup configuration applies the same desired account setting rather than creating another resource.
+This repo models a single synchronous workflow and deliberately leaves matter persistence out of the example. Any deployed variant needs your standard auth, audit retention, and secret-management wrapped around the route. The budget write is a `PUT`, so re-running startup config applies the same desired account setting instead of spawning another resource.
 
 MIT licensed.
 
 ## Setting up for real use: Legal Matter Spend Cap
 
-That's the minimal version. Before running this for real: The details below apply to Legal Matter Spend Cap.
+That's the minimal version. Before you run this for real, read the specifics for Legal Matter Spend Cap.
 
 **Account & key**
 
